@@ -1,12 +1,31 @@
 # Helpdesk Telegram Bot
 
-Telegram-бот для заявок в службу поддержки. Пользователь создаёт заявку, прикладывает скриншоты и отслеживает статус. Администраторы видят очередь, назначают исполнителя и отвечают по заявке. Бот хранит данные в SQLite.
+Telegram-бот для заявок в службу поддержки. Пользователь описывает проблему, прикладывает скриншоты и следит за статусом. Администраторы работают с очередями по направлениям, назначают исполнителя и отвечают в заявке. Данные хранятся в локальной SQLite.
 
-## Запуск
+## Быстрый старт
 
-1. Создайте виртуальное окружение Python 3.10+ и установите зависимости командой `python -m pip install -r requirements.txt`.
-2. Скопируйте `.env.example` в `.env` и укажите токен собственного бота в `SYSADMIN_BOT_TOKEN`.
-3. Добавьте числовые Telegram ID администраторов через запятую в `SYSADMIN_ADMIN_IDS` или в список соответствующего направления. Узнать свой ID можно командой `/id` после запуска.
-4. Запустите `python bot.py`. База появится автоматически.
+Нужен Python 3.10 или новее. В Windows PowerShell:
 
-Интеграция с CRM по умолчанию отключена. Для совместимого API настройте URL, секрет и список Telegram ID, затем включите `SYSADMIN_CRM_EXPORT_ENABLED`.
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+Запишите токен своего Telegram-бота в `SYSADMIN_BOT_TOKEN` в файле `.env`. Укажите Telegram ID администраторов через запятую в `SYSADMIN_ADMIN_IDS` или используйте отдельные списки для системного администрирования, 1С и CRM. Доступные параметры перечислены в [`.env.example`](.env.example).
+
+```powershell
+.\.venv\Scripts\python.exe bot.py
+```
+
+В Linux и macOS используйте `.venv/bin/python` и `cp .env.example .env`.
+
+Откройте бота в Telegram, отправьте `/start` и создайте пробную заявку через `/new`. Команда `/id` показывает ваш Telegram ID. После изменения администраторов в `.env` перезапустите бота и проверьте очередь через `/queue`.
+
+## Данные и интеграции
+
+- `SYSADMIN_DB_PATH` задаёт путь к SQLite. По умолчанию база `tickets.db` создаётся автоматически.
+- `SYSADMIN_TIMEZONE` задаёт часовой пояс для отметок времени. `SYSADMIN_RETENTION_DAYS` управляет сроком хранения.
+- Интеграция с CRM отключена по умолчанию. Для совместимого API заполните `SYSADMIN_CRM_API_URL`, `SYSADMIN_CRM_API_SECRET` и список `SYSADMIN_CRM_TELEGRAM_IDS`, затем включите `SYSADMIN_CRM_EXPORT_ENABLED`.
+
+Токены и рабочую SQLite-базу храните вне Git.
