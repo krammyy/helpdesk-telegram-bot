@@ -7,7 +7,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from config import APP_VERSION, is_admin, promote_admin_identity
+from config import APP_VERSION, is_admin
 from keyboards import main_menu, queue_button_text
 from texts import welcome
 
@@ -22,8 +22,7 @@ async def _register_user(message: Message, db) -> bool:
         user.username,
         user.full_name or user.first_name or "Пользователь",
     )
-    promote_admin_identity(user.id, user.username)
-    return is_admin(user.id, user.username)
+    return is_admin(user.id)
 
 
 @router.message(CommandStart())
@@ -33,13 +32,13 @@ async def cmd_start(message: Message, state: FSMContext, db) -> None:
     admin = await _register_user(message, db)
     await message.answer(
         welcome(user.first_name or "коллега", admin),
-        reply_markup=main_menu(user.id, user.username),
+        reply_markup=main_menu(user.id),
     )
     if admin:
         await message.answer(
             "🔔 Вы подписаны на уведомления о новых заявках.\n"
             "Входящие заявки коллег смотрите в "
-            f"<b>{queue_button_text(user.id, user.username)}</b> "
+            f"<b>{queue_button_text(user.id)}</b> "
             "(не в «Мои заявки» — там только ваши личные)."
         )
 
@@ -54,7 +53,7 @@ async def cmd_menu(message: Message, state: FSMContext, db) -> None:
     title = "Панель администратора восстановлена." if admin else "Главное меню восстановлено."
     await message.answer(
         f"🏠 {title}",
-        reply_markup=main_menu(user.id, user.username),
+        reply_markup=main_menu(user.id),
     )
 
 
@@ -63,10 +62,10 @@ async def cmd_menu(message: Message, state: FSMContext, db) -> None:
 async def cmd_help(message: Message) -> None:
     admin_extra = ""
     u = message.from_user
-    if is_admin(u.id, u.username):
+    if is_admin(u.id):
         admin_extra = (
             "\n\n<b>Для администраторов:</b>\n"
-            f"• <b>{queue_button_text(u.id, u.username)}</b> — активные заявки "
+            f"• <b>{queue_button_text(u.id)}</b> — активные заявки "
             "вашего направления\n"
             "• кнопки статуса: взять / ждать / готово\n"
             "• <b>📈 Статистика</b> и <b>🔎 Поиск</b> по номеру или тексту\n"
@@ -85,7 +84,7 @@ async def cmd_help(message: Message) -> None:
         "В «Мои заявки» можно поменять срочность, добавить комментарий "
         "или отменить заявку."
         f"{admin_extra}",
-        reply_markup=main_menu(u.id, u.username),
+        reply_markup=main_menu(u.id),
     )
 
 
@@ -96,7 +95,7 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
     u = message.from_user
     await message.answer(
         "Действие отменено.",
-        reply_markup=main_menu(u.id, u.username),
+        reply_markup=main_menu(u.id),
     )
 
 
@@ -106,7 +105,7 @@ async def cb_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.edit_text("Действие отменено.")
     await callback.message.answer(
         "Главное меню ниже 👇",
-        reply_markup=main_menu(callback.from_user.id, callback.from_user.username),
+        reply_markup=main_menu(callback.from_user.id),
     )
     await callback.answer()
 

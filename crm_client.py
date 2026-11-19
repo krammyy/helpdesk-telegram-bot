@@ -7,6 +7,7 @@ import hmac
 import json
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -14,7 +15,6 @@ from config import (
     CRM_API_SECRET,
     CRM_API_TIMEOUT_SECONDS,
     CRM_API_URL,
-    CRM_API_VERIFY_SSL,
 )
 
 
@@ -26,7 +26,6 @@ class CrmClient:
     def __init__(self) -> None:
         self.url = CRM_API_URL
         self.secret = CRM_API_SECRET
-        self.verify_ssl = CRM_API_VERIFY_SSL
         self.timeout = aiohttp.ClientTimeout(total=CRM_API_TIMEOUT_SECONDS)
 
     @property
@@ -36,6 +35,10 @@ class CrmClient:
     async def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.configured:
             raise CrmIntegrationError("Интеграция с CRM не настроена")
+
+        endpoint = urlsplit(self.url)
+        if endpoint.scheme != "https" or not endpoint.hostname or endpoint.username or endpoint.password:
+            raise CrmIntegrationError("Укажите HTTPS-адрес CRM без учётных данных в URL")
 
         body = json.dumps(
             payload,
@@ -60,7 +63,7 @@ class CrmClient:
                     self.url,
                     data=body,
                     headers=headers,
-                    ssl=self.verify_ssl,
+                    allow_redirects=False,
                 ) as response:
                     try:
                         result = await response.json(content_type=None)

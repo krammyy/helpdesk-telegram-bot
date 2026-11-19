@@ -6,21 +6,18 @@ import asyncio
 import logging
 import sys
 
-from aiogram import Bot, Dispatcher
+from aiogram import F, Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.enums import ParseMode
+from aiogram.enums import ChatType, ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
 from config import (
-    ADMIN_IDS,
-    ADMIN_USERNAMES,
     BOT_TOKEN,
     DATA_RETENTION_DAYS,
-    DEPARTMENT_ADMINS,
     PROXY_URL,
-    all_admin_identity_sets,
+    all_admin_ids,
 )
 from database import Database
 from crm_client import CrmClient
@@ -39,8 +36,8 @@ async def main() -> None:
             "Не задан токен. Создайте .env с SYSADMIN_BOT_TOKEN=..."
         )
         sys.exit(1)
-    configured_admin_ids, configured_admin_usernames = all_admin_identity_sets()
-    if not configured_admin_ids and not configured_admin_usernames:
+    configured_admin_ids = all_admin_ids()
+    if not configured_admin_ids:
         log.warning(
             "Списки администраторов пусты — админ-меню никто не увидит. "
             "Узнайте ID командой /id и добавьте роль в .env"
@@ -48,15 +45,8 @@ async def main() -> None:
 
     db = Database()
     await db.connect()
-    # Большинство админов исторически настроены по username. После первого
-    # обращения их Telegram ID уже есть в users; поднимаем эти ID в память,
-    # чтобы права и клавиатура не зависели от наличия username в каждом update.
-    ADMIN_IDS.update(await db.admin_recipient_ids(ADMIN_IDS, ADMIN_USERNAMES))
-    for dept_ids, dept_usernames in DEPARTMENT_ADMINS.values():
-        dept_ids.update(await db.admin_recipient_ids(dept_ids, dept_usernames))
-    all_admin_ids, all_admin_usernames = all_admin_identity_sets()
     deleted_tickets, deleted_users = await db.cleanup_expired(
-        DATA_RETENTION_DAYS, all_admin_usernames, all_admin_ids
+        DATA_RETENTION_DAYS, configured_admin_ids
     )
     log.info(
         "Политика хранения %s дней: удалено заявок %s, пользователей %s",
@@ -74,6 +64,8 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher(storage=MemoryStorage())
+    dp.message.filter(F.chat.type == ChatType.PRIVATE)
+    dp.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
     dp["db"] = db
     dp["crm_client"] = CrmClient()
 
@@ -105,16 +97,7 @@ async def main() -> None:
         )
     except Exception as exc:
         log.warning("Не удалось обновить имя/описание бота: %s", exc)
-    all_admin_ids, all_admin_usernames = all_admin_identity_sets()
-    log.info("Бот @%s запущен. Админов: %s", me.username, len(all_admin_ids))
-    missing = await db.unresolved_admin_usernames(
-        all_admin_ids, all_admin_usernames
-    )
-    if missing:
-        log.warning(
-            "Админы ещё не писали боту (/start) — пуши им не дойдут: %s",
-            ", ".join(sorted("@" + m for m in missing)),
-        )
+    log.info("Бот @%s запущен. Админов: %s", me.username, len(configured_admin_ids))
 
     try:
         await dp.start_polling(bot, db=db)

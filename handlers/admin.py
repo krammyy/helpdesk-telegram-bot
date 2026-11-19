@@ -18,7 +18,7 @@ from config import (
     STATUS,
     admin_allowed_categories,
     admin_departments,
-    admin_identity_sets_for_ticket,
+    admin_ids_for_ticket,
     can_access_ticket,
     is_admin,
 )
@@ -50,8 +50,8 @@ router = Router(name="admin")
 log = logging.getLogger("sysadmin_bot.admin")
 
 
-def _admin_only(user_id: int, username: str | None = None) -> bool:
-    return is_admin(user_id, username)
+def _admin_only(user_id: int) -> bool:
+    return is_admin(user_id)
 
 
 def _crm_pilot(user_id: int) -> bool:
@@ -138,20 +138,15 @@ def _assignee_notice(ticket: dict, admin, intro: str) -> str:
 
 
 def _scope(user) -> set[str]:
-    return admin_allowed_categories(user.id, user.username)
+    return admin_allowed_categories(user.id)
 
 
 def _can_access_ticket(user, ticket: dict) -> bool:
-    return can_access_ticket(
-        user.id,
-        user.username,
-        ticket.get("department") or "system",
-        ticket.get("category") or "other",
-    )
+    return can_access_ticket(user.id, ticket.get("category") or "other")
 
 
 def _queue_title(user) -> str:
-    departments = admin_departments(user.id, user.username)
+    departments = admin_departments(user.id)
     if len(departments) == 1:
         return DEPARTMENT[next(iter(departments))]["queue_title"]
     return "Общая очередь"
@@ -166,11 +161,11 @@ async def _notify_other_admins_claimed(bot, db, ticket: dict, claimant) -> None:
         + ticket_card(ticket, position=position, show_user=True)
     )
     kb = claim_taken_kb(ticket["id"])
-    admin_ids, admin_usernames = admin_identity_sets_for_ticket(
+    recipients = admin_ids_for_ticket(
         ticket.get("department") or "system",
         ticket.get("category") or "other",
     )
-    for aid in await db.admin_recipient_ids(admin_ids, admin_usernames):
+    for aid in recipients:
         if aid == claimant.id:
             continue
         try:
@@ -235,7 +230,7 @@ async def _send_archive(message: Message, db) -> None:
 @router.message(F.text == "🗄 Архив задач")
 @router.message(Command("archive"))
 async def show_archive(message: Message, db) -> None:
-    if not _admin_only(message.from_user.id, message.from_user.username):
+    if not _admin_only(message.from_user.id):
         await message.answer("Команда только для администраторов.")
         return
     await _send_archive(message, db)
@@ -243,7 +238,7 @@ async def show_archive(message: Message, db) -> None:
 
 @router.callback_query(F.data == "archive:refresh")
 async def refresh_archive(callback: CallbackQuery, db) -> None:
-    if not _admin_only(callback.from_user.id, callback.from_user.username):
+    if not _admin_only(callback.from_user.id):
         await callback.answer("Только для администраторов", show_alert=True)
         return
     tickets = await db.list_archive(categories=_scope(callback.from_user))
@@ -259,7 +254,7 @@ async def refresh_archive(callback: CallbackQuery, db) -> None:
 @router.message(F.text == "👤 На мне")
 @router.message(Command("mine"))
 async def show_mine(message: Message, db) -> None:
-    if not _admin_only(message.from_user.id, message.from_user.username):
+    if not _admin_only(message.from_user.id):
         await message.answer("Команда только для администраторов.")
         return
     await _send_mine(message, db)
@@ -268,7 +263,7 @@ async def show_mine(message: Message, db) -> None:
 @router.message(F.text.in_(QUEUE_BUTTONS))
 @router.message(Command("queue"))
 async def show_queue(message: Message, db) -> None:
-    if not _admin_only(message.from_user.id, message.from_user.username):
+    if not _admin_only(message.from_user.id):
         await message.answer("Команда только для администраторов.")
         return
     tickets = await db.list_queue(categories=_scope(message.from_user))
@@ -282,7 +277,7 @@ async def show_queue(message: Message, db) -> None:
 
 @router.callback_query(F.data.startswith("queue:"))
 async def filter_queue(callback: CallbackQuery, db) -> None:
-    if not _admin_only(callback.from_user.id, callback.from_user.username):
+    if not _admin_only(callback.from_user.id):
         await callback.answer("Только для администраторов", show_alert=True)
         return
 
@@ -316,7 +311,7 @@ async def filter_queue(callback: CallbackQuery, db) -> None:
 
 @router.callback_query(F.data.startswith("queue_page:"))
 async def queue_page(callback: CallbackQuery, db) -> None:
-    if not _admin_only(callback.from_user.id, callback.from_user.username):
+    if not _admin_only(callback.from_user.id):
         await callback.answer("Только для администраторов", show_alert=True)
         return
     _, kind, raw_page = callback.data.split(":", 2)
@@ -350,7 +345,7 @@ async def queue_page(callback: CallbackQuery, db) -> None:
 
 @router.callback_query(F.data.startswith("claim_confirm:"))
 async def confirm_claim(callback: CallbackQuery, db) -> None:
-    if not _admin_only(callback.from_user.id, callback.from_user.username):
+    if not _admin_only(callback.from_user.id):
         await callback.answer("Только для администраторов", show_alert=True)
         return
     ticket_id = int(callback.data.split(":", 1)[1])
@@ -370,7 +365,7 @@ async def confirm_claim(callback: CallbackQuery, db) -> None:
 
 @router.callback_query(F.data.startswith("claim:"))
 async def claim_ticket(callback: CallbackQuery, db, bot) -> None:
-    if not _admin_only(callback.from_user.id, callback.from_user.username):
+    if not _admin_only(callback.from_user.id):
         await callback.answer("Только для администраторов", show_alert=True)
         return
     ticket_id = int(callback.data.split(":", 1)[1])
@@ -426,7 +421,7 @@ async def claim_ticket(callback: CallbackQuery, db, bot) -> None:
 
 @router.callback_query(F.data.startswith("takeover:"))
 async def takeover_ticket(callback: CallbackQuery, db, bot) -> None:
-    if not _admin_only(callback.from_user.id, callback.from_user.username):
+    if not _admin_only(callback.from_user.id):
         await callback.answer("Только для администраторов", show_alert=True)
         return
 
@@ -499,7 +494,7 @@ async def takeover_ticket(callback: CallbackQuery, db, bot) -> None:
 
 @router.callback_query(F.data.startswith("claim_dismiss:"))
 async def claim_dismiss(callback: CallbackQuery, db) -> None:
-    if not _admin_only(callback.from_user.id, callback.from_user.username):
+    if not _admin_only(callback.from_user.id):
         await callback.answer("Только для администраторов", show_alert=True)
         return
     ticket_id = callback.data.split(":", 1)[1]
@@ -515,7 +510,7 @@ async def claim_dismiss(callback: CallbackQuery, db) -> None:
 
 @router.callback_query(F.data.startswith("st:"))
 async def change_status(callback: CallbackQuery, db, bot) -> None:
-    if not _admin_only(callback.from_user.id, callback.from_user.username):
+    if not _admin_only(callback.from_user.id):
         await callback.answer("Только для администраторов", show_alert=True)
         return
 
@@ -694,7 +689,7 @@ async def crm_comment_choice(callback: CallbackQuery, state: FSMContext, db) -> 
         await callback.message.edit_text("Отправка в CRM отменена.")
         await callback.message.answer(
             "Главное меню ниже 👇",
-            reply_markup=main_menu(callback.from_user.id, callback.from_user.username),
+            reply_markup=main_menu(callback.from_user.id),
         )
     elif answer == "yes":
         await state.update_data(expecting_comment=True)
@@ -751,7 +746,7 @@ async def crm_report(message: Message, state: FSMContext, db) -> None:
         await state.clear()
         await message.answer(
             "Заявка больше недоступна для отправки.",
-            reply_markup=main_menu(message.from_user.id, message.from_user.username),
+            reply_markup=main_menu(message.from_user.id),
         )
         return
     export = await db.upsert_crm_export(
@@ -798,7 +793,7 @@ async def crm_abort(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.edit_text("Отправка в CRM отменена. Заявка HelpDesk уже закрыта.")
     await callback.message.answer(
         "Главное меню ниже 👇",
-        reply_markup=main_menu(callback.from_user.id, callback.from_user.username),
+        reply_markup=main_menu(callback.from_user.id),
     )
     await callback.answer()
 
@@ -877,25 +872,25 @@ async def crm_send(callback: CallbackQuery, state: FSMContext, db, crm_client) -
     )
     await callback.message.answer(
         "Готово.",
-        reply_markup=main_menu(callback.from_user.id, callback.from_user.username),
+        reply_markup=main_menu(callback.from_user.id),
     )
 
 
 @router.message(F.text == "📈 Статистика")
 @router.message(Command("stats"))
 async def show_stats(message: Message, db) -> None:
-    if not _admin_only(message.from_user.id, message.from_user.username):
+    if not _admin_only(message.from_user.id):
         await message.answer("Команда только для администраторов.")
         return
     s = await db.stats(_scope(message.from_user))
     u = message.from_user
-    await message.answer(stats_card(s), reply_markup=main_menu(u.id, u.username))
+    await message.answer(stats_card(s), reply_markup=main_menu(u.id))
 
 
 @router.message(F.text == "🔎 Поиск")
 @router.message(Command("search"))
 async def start_search(message: Message, state: FSMContext) -> None:
-    if not _admin_only(message.from_user.id, message.from_user.username):
+    if not _admin_only(message.from_user.id):
         await message.answer("Команда только для администраторов.")
         return
     await state.set_state(SearchTicket.waiting)
@@ -908,32 +903,32 @@ async def start_search(message: Message, state: FSMContext) -> None:
 @router.message(SearchTicket.waiting, F.text)
 async def do_search(message: Message, state: FSMContext, db) -> None:
     u = message.from_user
-    if not _admin_only(u.id, u.username):
+    if not _admin_only(u.id):
         await state.clear()
         return
     q = (message.text or "").strip()
     if q == "❌ Отмена":
         await state.clear()
-        await message.answer("Отменено.", reply_markup=main_menu(u.id, u.username))
+        await message.answer("Отменено.", reply_markup=main_menu(u.id))
         return
     results = await db.search(q, categories=_scope(u))
     await state.clear()
     if not results:
         await message.answer(
             "Ничего не найдено.",
-            reply_markup=main_menu(u.id, u.username),
+            reply_markup=main_menu(u.id),
         )
         return
     await message.answer(
         queue_list(results, title=f"Найдено: «{q}»"),
         reply_markup=queue_tickets_kb(results),
     )
-    await message.answer("Готово.", reply_markup=main_menu(u.id, u.username))
+    await message.answer("Готово.", reply_markup=main_menu(u.id))
 
 
 @router.callback_query(F.data.startswith("acomment:"))
 async def start_admin_comment(callback: CallbackQuery, state: FSMContext, db) -> None:
-    if not _admin_only(callback.from_user.id, callback.from_user.username):
+    if not _admin_only(callback.from_user.id):
         await callback.answer("Только для администраторов", show_alert=True)
         return
     ticket_id = int(callback.data.split(":")[1])
@@ -956,13 +951,13 @@ async def start_admin_comment(callback: CallbackQuery, state: FSMContext, db) ->
 @router.message(AdminComment.waiting, F.text)
 async def save_admin_comment(message: Message, state: FSMContext, db, bot) -> None:
     u = message.from_user
-    if not _admin_only(u.id, u.username):
+    if not _admin_only(u.id):
         await state.clear()
         return
     text = (message.text or "").strip()
     if text == "❌ Отмена":
         await state.clear()
-        await message.answer("Отменено.", reply_markup=main_menu(u.id, u.username))
+        await message.answer("Отменено.", reply_markup=main_menu(u.id))
         return
 
     data = await state.get_data()
@@ -972,7 +967,7 @@ async def save_admin_comment(message: Message, state: FSMContext, db, bot) -> No
         await state.clear()
         await message.answer(
             "Нет доступа к этой заявке.",
-            reply_markup=main_menu(u.id, u.username),
+            reply_markup=main_menu(u.id),
         )
         return
     await db.add_comment(ticket_id, message.from_user.id, text, is_admin=True)
@@ -982,7 +977,7 @@ async def save_admin_comment(message: Message, state: FSMContext, db, bot) -> No
 
     await message.answer(
         f"Отправлено клиенту по #{ticket_id}.",
-        reply_markup=main_menu(u.id, u.username),
+        reply_markup=main_menu(u.id),
     )
     try:
         await bot.send_message(

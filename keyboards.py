@@ -25,8 +25,8 @@ PAGE_SIZE = 8
 ALL_QUEUE_BUTTON = "🛠 Общая очередь"
 
 
-def queue_button_text(user_id: int, username: str | None = None) -> str:
-    departments = admin_departments(user_id, username)
+def queue_button_text(user_id: int) -> str:
+    departments = admin_departments(user_id)
     if len(departments) == 1:
         return DEPARTMENT[next(iter(departments))]["queue_button"]
     return ALL_QUEUE_BUTTON
@@ -37,15 +37,15 @@ QUEUE_BUTTONS = {ALL_QUEUE_BUTTON} | {
 }
 
 
-def main_menu(user_id: int, username: str | None = None) -> ReplyKeyboardMarkup:
+def main_menu(user_id: int) -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text="📝 Новая заявка")],
         [KeyboardButton(text="📂 Мои заявки"), KeyboardButton(text="ℹ️ Помощь")],
     ]
-    if is_admin(user_id, username):
+    if is_admin(user_id):
         rows.append(
             [
-                KeyboardButton(text=queue_button_text(user_id, username)),
+                KeyboardButton(text=queue_button_text(user_id)),
                 KeyboardButton(text="👤 На мне"),
             ]
         )

@@ -14,7 +14,7 @@ from config import (
     CATEGORY,
     DEPARTMENT,
     PRIORITY,
-    admin_identity_sets_for_ticket,
+    admin_ids_for_ticket,
     can_access_ticket,
     is_admin,
 )
@@ -47,16 +47,9 @@ async def _notify_admins(
     category: str,
     screenshot_ids: list[str] | None = None,
 ) -> None:
-    admin_ids, admin_usernames = admin_identity_sets_for_ticket(
+    recipients = admin_ids_for_ticket(
         department, category
     )
-    recipients = await db.admin_recipient_ids(admin_ids, admin_usernames)
-    missing = await db.unresolved_admin_usernames(admin_ids, admin_usernames)
-    if missing:
-        log.warning(
-            "Админы без /start не получат уведомление: %s",
-            ", ".join(sorted("@" + m for m in missing)),
-        )
     if not recipients:
         log.error("Нет получателей для админ-уведомления")
         return
@@ -86,7 +79,7 @@ async def _notify_admins(
 async def _notify_ticket_specialist(bot, db, ticket: dict, text: str) -> None:
     """Отправляет ответ назначенному специалисту или профильной очереди."""
     admin_id = ticket.get("admin_id")
-    if not admin_id:
+    if not admin_id or not can_access_ticket(int(admin_id), ticket["category"]):
         await _notify_admins(
             bot,
             db,
@@ -108,12 +101,7 @@ async def _notify_ticket_specialist(bot, db, ticket: dict, text: str) -> None:
 
 
 def _admin_can_access(user, ticket: dict) -> bool:
-    return can_access_ticket(
-        user.id,
-        user.username,
-        ticket.get("department") or "system",
-        ticket.get("category") or "other",
-    )
+    return can_access_ticket(user.id, ticket.get("category") or "other")
 
 async def _ask_location(message, state: FSMContext) -> None:
     await state.set_state(CreateTicket.location)
@@ -184,7 +172,7 @@ async def set_title(message: Message, state: FSMContext) -> None:
     title = (message.text or "").strip()
     if title == "❌ Отмена":
         await state.clear()
-        await message.answer("Отменено.", reply_markup=main_menu(u.id, u.username))
+        await message.answer("Отменено.", reply_markup=main_menu(u.id))
         return
     if len(title) < 3:
         await message.answer("Слишком коротко. Напишите тему от 3 символов.")
@@ -209,7 +197,7 @@ async def set_description(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
     if text == "❌ Отмена":
         await state.clear()
-        await message.answer("Отменено.", reply_markup=main_menu(u.id, u.username))
+        await message.answer("Отменено.", reply_markup=main_menu(u.id))
         return
     if len(text) < 5:
         await message.answer("Добавьте чуть больше деталей (от 5 символов).")
@@ -287,7 +275,7 @@ async def set_location(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
     if text == "❌ Отмена":
         await state.clear()
-        await message.answer("Отменено.", reply_markup=main_menu(u.id, u.username))
+        await message.answer("Отменено.", reply_markup=main_menu(u.id))
         return
     await state.update_data(location=text[:200])
     await state.set_state(CreateTicket.priority)
@@ -329,7 +317,7 @@ async def set_priority_and_create(
     await callback.message.edit_text(ticket_created(ticket_id, position, key))
     await callback.message.answer(
         "Что дальше?",
-        reply_markup=main_menu(user.id, user.username),
+        reply_markup=main_menu(user.id),
     )
     await callback.answer("Заявка создана!")
 
@@ -354,7 +342,7 @@ async def my_tickets(message: Message, db) -> None:
     u = message.from_user
     tickets = await db.list_user_tickets(u.id, active_only=True)
     tip = ""
-    if is_admin(u.id, u.username):
+    if is_admin(u.id):
         tip = (
             "\n\n🛠 Входящие заявки сотрудников — в <b>Общая очередь</b> "
             "или <b>На мне</b>."
@@ -364,7 +352,7 @@ async def my_tickets(message: Message, db) -> None:
             "У вас нет активных заявок.\n"
             "Нажмите <b>📝 Новая заявка</b>, чтобы создать новую."
             f"{tip}",
-            reply_markup=main_menu(u.id, u.username),
+            reply_markup=main_menu(u.id),
         )
         return
     header = (
@@ -616,20 +604,20 @@ async def save_client_comment(message: Message, state: FSMContext, db, bot) -> N
     text = (message.text or "").strip()
     if text == "❌ Отмена":
         await state.clear()
-        await message.answer("Отменено.", reply_markup=main_menu(u.id, u.username))
+        await message.answer("Отменено.", reply_markup=main_menu(u.id))
         return
     data = await state.get_data()
     ticket_id = data["ticket_id"]
     ticket = await db.get_ticket(ticket_id)
     if not ticket or ticket["user_id"] != message.from_user.id:
         await state.clear()
-        await message.answer("Заявка недоступна.", reply_markup=main_menu(u.id, u.username))
+        await message.answer("Заявка недоступна.", reply_markup=main_menu(u.id))
         return
     await db.add_comment(ticket_id, message.from_user.id, text, is_admin=False)
     await state.clear()
     await message.answer(
         f"Комментарий добавлен к #{ticket_id}.",
-        reply_markup=main_menu(u.id, u.username),
+        reply_markup=main_menu(u.id),
     )
     await _notify_ticket_specialist(
         bot,
@@ -667,7 +655,7 @@ async def save_client_native_reply(message: Message, db, bot) -> None:
     await db.add_comment(ticket_id, message.from_user.id, text, is_admin=False)
     await message.answer(
         f"Ответ отправлен специалисту по заявке #{ticket_id}.",
-        reply_markup=main_menu(message.from_user.id, message.from_user.username),
+        reply_markup=main_menu(message.from_user.id),
     )
     await _notify_ticket_specialist(
         bot,

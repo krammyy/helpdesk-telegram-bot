@@ -121,7 +121,7 @@ class Database:
         await self.db.execute(
             "CREATE INDEX IF NOT EXISTS idx_tickets_department ON tickets(department)"
         )
-        # CRM и сайт выделены из направления сисадминов в отдельное.
+
         await self.db.execute(
             "UPDATE tickets SET department = 'crm' "
             "WHERE category IN ('crm', 'site') AND department != 'crm'"
@@ -138,7 +138,7 @@ class Database:
         if row and row[0] == TIMEZONE_NAME:
             return
 
-        # Исторические значения писались в UTC без суффикса — добавляем смещение настроенного часового пояса.
+
         offset = datetime.now(TZ).utcoffset() or timedelta()
         hours = int(offset.total_seconds() // 3600)
         shift = f"+{hours} hours" if hours >= 0 else f"{hours} hours"
@@ -375,40 +375,6 @@ class Database:
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
-    async def admin_recipient_ids(
-        self, admin_ids: set[int], admin_usernames: set[str]
-    ) -> set[int]:
-        recipients = set(admin_ids)
-        if admin_usernames:
-            marks = ",".join("?" for _ in admin_usernames)
-            cur = await self.db.execute(
-                f"SELECT user_id FROM users WHERE lower(username) IN ({marks})",
-                tuple(name.lower() for name in admin_usernames),
-            )
-            recipients.update(int(row[0]) for row in await cur.fetchall())
-        return recipients
-
-    async def unresolved_admin_usernames(
-        self, admin_ids: set[int], admin_usernames: set[str]
-    ) -> set[str]:
-        """Usernames админов, которых ещё нет в users (не писали боту /start)."""
-        if not admin_usernames:
-            return set()
-        marks = ",".join("?" for _ in admin_usernames)
-        cur = await self.db.execute(
-            f"SELECT lower(username) FROM users WHERE lower(username) IN ({marks})",
-            tuple(name.lower() for name in admin_usernames),
-        )
-        known = {str(row[0]) for row in await cur.fetchall() if row[0]}
-        if admin_ids:
-            id_marks = ",".join("?" for _ in admin_ids)
-            cur = await self.db.execute(
-                f"SELECT lower(username) FROM users WHERE user_id IN ({id_marks})",
-                tuple(admin_ids),
-            )
-            known.update(str(row[0]) for row in await cur.fetchall() if row[0])
-        return {name.lower() for name in admin_usernames} - known
-
     async def claim_ticket(self, ticket_id: int, admin_id: int) -> bool:
         """Атомарно назначает новую заявку одному администратору."""
         now = _now()
@@ -441,7 +407,6 @@ class Database:
     async def cleanup_expired(
         self,
         retention_days: int,
-        admin_usernames: set[str],
         admin_ids: set[int] | None = None,
     ) -> tuple[int, int]:
         """Удаляет закрытые заявки старше срока и осиротевших не-админов."""
@@ -467,11 +432,6 @@ class Database:
             marks = ",".join("?" for _ in admin_ids)
             clauses.append(f"user_id NOT IN ({marks})")
             params.extend(admin_ids)
-        if admin_usernames:
-            marks = ",".join("?" for _ in admin_usernames)
-            clauses.append(f"lower(IFNULL(username, '')) NOT IN ({marks})")
-            params.extend(n.lower() for n in admin_usernames)
-
         cur = await self.db.execute(
             f"DELETE FROM users WHERE {' AND '.join(clauses)}",
             tuple(params),
@@ -759,5 +719,5 @@ class Database:
         return [dict(r) for r in rows]
 
 
-# Для сортировки в памяти при необходимости
+
 PRIORITY_WEIGHT = {k: v["weight"] for k, v in PRIORITY.items()}
